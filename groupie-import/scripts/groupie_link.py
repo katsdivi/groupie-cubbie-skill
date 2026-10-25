@@ -27,8 +27,8 @@ EXIT_SIGNATURE, EXIT_FRESH_CODE, EXIT_RATE, EXIT_SERVER, EXIT_NOT_LINKED = 7, 8,
 
 
 def token_path() -> Path:
-    """~/.config/groupie/token, under the HOME of whoever runs the script."""
-    return Path.home() / ".config" / "groupie" / "token"
+    """~/.config/groupie/token, under the HOME of whoever runs the script (the same file send.py reads)."""
+    return send.token_path()
 
 
 def save_token(token: str) -> Path:

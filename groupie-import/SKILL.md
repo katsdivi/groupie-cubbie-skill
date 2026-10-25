@@ -1,8 +1,8 @@
 ---
 name: groupie-import
-description: Sends a Canvas assignment to Groupie (the Telegram bot for group projects and personal plans) and texts the student their Groupie tasks, deadlines and next meeting. Use when the student texts "Groupie import" followed by a 6 character code, optionally with an assignment name, for example "Groupie import K7Q2MX Project 2", or pastes a Groupie pair code and asks to send an assignment; when they text "Groupie link" with a code; or when they ask "Groupie status", "what's due on Groupie", "my Groupie tasks", or "Groupie unlink".
+description: Sends a Canvas assignment to Groupie (the Telegram bot for group projects and personal plans) and texts the student their Groupie tasks, deadlines and next meeting. Use when the student texts "Groupie import" followed by a 6 character code, optionally with an assignment name, for example "Groupie import K7Q2MX Project 2", or "Groupie import" with just an assignment name once this chat is linked, for example "Groupie import Project 2", or pastes a Groupie pair code and asks to send an assignment; when they text "Groupie link" with a code; or when they ask "Groupie status", "what's due on Groupie", "my Groupie tasks", or "Groupie unlink".
 metadata:
-  version: "2"
+  version: "3"
 ---
 
 # Groupie Import
@@ -23,10 +23,18 @@ No setup: the script uses only Python's standard library.
 - "Groupie import K7Q2MX"
 - "Groupie import K7Q2MX Project 2"
 - "groupie import k7q2mx the CSE 340 final project"
+- "Groupie import Project 2" (no code: only works once this chat is linked, see "Groupie link and status")
 
 The code is 6 characters from the letters and digits ABCDEFGHJKMNPQRSTUVWXYZ23456789 (no 0, O, 1, I or L).
 Treat lowercase as uppercase. Everything after the code is the assignment name, which is optional. A code works
 once and lasts 30 minutes.
+
+Code or no code:
+
+- If the message has a 6 character code, use it, even when this chat is linked.
+- If it has no code, the script uses this chat's Groupie link instead (the linked import). Groupie then works out
+  the group itself, or asks "Which group?". If this chat is not linked, the script prints a line asking for the
+  code; text it to the student.
 
 Do not use it for reminders, study plans, grades, calendar links or anything that changes Canvas. This Skill never
 handles the Canvas calendar feed; if the student asks about it, tell them to paste the feed link in the Groupie
@@ -34,8 +42,9 @@ Mini App themselves.
 
 ## Steps
 
-1. Check the code. If it is not 6 characters from the alphabet above, ask the student to copy it again from the
-   Groupie message in their group, and stop.
+1. Check the code. If there is one and it is not 6 characters from the alphabet above, ask the student to copy it
+   again from the Groupie message in their group, and stop. If there is no code at all, go on: the script decides
+   (linked import, or it asks for a code).
 2. Read the assignment with Cubbie's Canvas ability. Use the name the student gave; with no name, look at
    assignments due in the next 30 days. Get the course name and course code, the assignment title, the due date
    and time with its time zone, the points possible if Canvas shows them, the full description as plain text,
@@ -67,7 +76,7 @@ Mini App themselves.
    Wait for the student's answer. Send nothing unless they say yes. If they say no, say it was not sent.
 6. After the yes, write a file such as `/tmp/groupie-import.json` with the same shape as
    `assets/sample_payload.json` (copy that file and replace its values):
-   - the pair code, in capitals
+   - the pair code, in capitals; with no code, leave `pairCode` out of the file entirely
    - the course name, and the course code if Canvas has one
    - the assignment title; the due date as an ISO 8601 date and time with the offset from Canvas, such as
      2026-11-20T23:59:00-07:00, or null when Canvas has no due date (never guess one); the points possible, or
@@ -80,6 +89,8 @@ Mini App themselves.
    python3 scripts/send.py --file /tmp/groupie-import.json
    ```
 
+   With no code and a linked chat, the same command sends the linked import.
+
 8. Text the student exactly the line or lines the script printed, word for word, whatever the exit code. Do not
    reword them, add to them, or sum up a failure as "rejected"; each line already says what happened and what to
    do next. On success it prints "Sent to Groupie. Check your group." for a group code, or "Sent to Groupie. Check
@@ -88,8 +99,15 @@ Mini App themselves.
      "The files are too big to send. I'll send the assignment text instead." and then the result of that second
      try. Send both lines, and do not run it again.
    - The script also prints short notes for you, such as the error name and a request id. Every note line begins
-     with "error:", "requestId:" or "retry without attachments:". Never text a line that begins with one of those
-     to the student; text only the other lines.
+     with "error:", "requestId:", "retry without attachments:" or "target". Never text a line that begins with
+     one of those to the student; text only the other lines.
+   - Linked import, exit code 14: the script printed a question like "Which group? 1. CSE 340 Team 2. HST 100
+     3. Just me". Text it as is and wait. When the student answers with a number (or a name from the list, which
+     you turn into its number), run the same command again with `--target` and that number, for example
+     `python3 scripts/send.py --file /tmp/groupie-import.json --target 2`. Do not ask "Send this?" again; they
+     already said yes. Then text what it prints, as above.
+   - Linked import, exit code 15: the link is gone. Text the line it printed ("Your Groupie link expired. Send
+     /imessage in Groupie to relink.") and stop.
 
 To try the script without sending anything, run `python3 scripts/send.py --sample`.
 
@@ -110,6 +128,7 @@ The link code uses the same 6 character alphabet as the import code. It comes fr
    Groupie and saves the token Groupie returns under the student's home folder (`~/.config/groupie/token`, only
    the student can read it). Nothing else is needed from the student: the token is made by Groupie for them, it is
    not a password or a Canvas login, so never ask for one. On exit code 0, reply with the line it printed.
+   Once linked, "Groupie import <assignment name>" works without a code (see "Code or no code" above).
 2. "Groupie status" and the other status questions: run `python3 scripts/status.py`. On exit code 0, send what it
    printed as it is (it is already short plain text, with the meeting link on its own line).
 3. "Groupie unlink": run `python3 scripts/status.py --unlink` and reply with the line it printed.
@@ -138,7 +157,7 @@ Only what the student saw in the summary: course, assignment details, due date, 
 the attached files and rubric criteria if Canvas returned them. It goes to Groupie's server at
 devhacks-groupie-production.up.railway.app and is posted in the student's Groupie group (or, for a personal
 code, sent to the student in Telegram). No Canvas login, Canvas token or calendar link is ever sent. Linking sends
-only the link code; status sends only Groupie's own token, back to Groupie.
+only the link code; status and the linked import send only Groupie's own token, back to Groupie.
 
 ## Replies
 
@@ -153,7 +172,7 @@ you know what each exit code means.
 | Exit code | Meaning | What the script prints for the student |
 | --- | --- | --- |
 | 2 | The payload file is missing or not readable | Nothing. Rewrite the file from step 6 and run the script once more; if it fails again, say the import did not work |
-| 3 | The code is not a Groupie code | "That code doesn't look right. Copy it again from the Groupie message in your group." |
+| 3 | The code is not a Groupie code, or there is no code and this chat is not linked | "That code doesn't look right. Copy it again from the Groupie message in your group." (with no code: a line asking for the code) |
 | 4 | Something required is missing or too long | Nothing. Fix what the script named (for example a missing title, or a description over 60,000 characters, which you shorten) and run once more |
 | 5 | Groupie's server is not reachable | "Groupie hit a snag on its side. Your code still works, try again in a minute." |
 | 6 | Groupie could not use the assignment | "Groupie hit a snag on its side. Your code still works, try again in a minute." |
@@ -164,6 +183,9 @@ you know what each exit code means.
 | 11 | Other server error | "Groupie hit a snag on its side. Your code still works, try again in a minute." |
 | 12 | The code was already used | "That code was already used. Grab a fresh one with /canvas." |
 | 13 | Too big even without the files | "Groupie hit a snag on its side. Your code still works, try again in a minute.", after "The files are too big to send. I'll send the assignment text instead." when there were files to drop |
+| 14 | Linked import: Groupie needs to know which group | The "Which group? 1. ... 2. ... 3. Just me" question. Rerun with `--target <number>` after the answer (step 8) |
+| 15 | Linked import: the link was turned off or is unknown | "Your Groupie link expired. Send /imessage in Groupie to relink." |
 
-Run the script again only for exit codes 2 and 4, after fixing the file, and only once. For every other code, wait
+Run the script again only for exit codes 2 and 4, after fixing the file, and only once, and for exit code 14 with
+the student's choice. For every other code, wait
 for the student to text you again. Never say it was sent unless the script exited with 0.
