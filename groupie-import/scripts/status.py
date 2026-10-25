@@ -107,7 +107,7 @@ def summary(me: dict) -> str:
 
 
 def fetch(method: str, base: str, path: str, token: str) -> tuple:
-    headers = {"Authorization": f"Bearer {token}", "User-Agent": "groupie-import-skill/1"}
+    headers = {"Authorization": f"Bearer {token}", "User-Agent": send.USER_AGENT}
     status, raw = g.request(method, base + path, headers)
     try:
         data = json.loads(raw.decode("utf-8") or "{}")

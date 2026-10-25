@@ -1,6 +1,8 @@
 ---
 name: groupie-import
 description: Sends a Canvas assignment to Groupie (the Telegram bot for group projects and personal plans) and texts the student their Groupie tasks, deadlines and next meeting. Use when the student texts "Groupie import" followed by a 6 character code, optionally with an assignment name, for example "Groupie import K7Q2MX Project 2", or pastes a Groupie pair code and asks to send an assignment; when they text "Groupie link" with a code; or when they ask "Groupie status", "what's due on Groupie", "my Groupie tasks", or "Groupie unlink".
+metadata:
+  version: "2"
 ---
 
 # Groupie Import
@@ -23,7 +25,8 @@ No setup: the script uses only Python's standard library.
 - "groupie import k7q2mx the CSE 340 final project"
 
 The code is 6 characters from the letters and digits ABCDEFGHJKMNPQRSTUVWXYZ23456789 (no 0, O, 1, I or L).
-Treat lowercase as uppercase. Everything after the code is the assignment name, which is optional.
+Treat lowercase as uppercase. Everything after the code is the assignment name, which is optional. A code works
+once and lasts 30 minutes.
 
 Do not use it for reminders, study plans, grades, calendar links or anything that changes Canvas. This Skill never
 handles the Canvas calendar feed; if the student asks about it, tell them to paste the feed link in the Groupie
@@ -38,7 +41,9 @@ Mini App themselves.
    and time with its time zone, the points possible if Canvas shows them, the full description as plain text,
    and the assignment's Canvas link.
    - If Canvas is not connected, ask the student to connect Canvas and stop here.
-   - If several assignments match, list up to three (course, title, due date) and ask which one. One question.
+   - If several assignments match (or the student gave no name and several are due), list up to three (course,
+     title, due date) and ask which one. One question. If the answer still fits more than one, ask again the same
+     way until one assignment is left. Never pick one for the student.
    - If nothing matches, say so and ask for the exact assignment name.
 3. Read the files attached to that assignment (PDFs, documents) with Cubbie's Canvas and files abilities, and keep
    the text of each one, up to five files. Send only the text, never the file itself. Skip a file whose text
@@ -75,8 +80,16 @@ Mini App themselves.
    python3 scripts/send.py --file /tmp/groupie-import.json
    ```
 
-8. On exit code 0, reply with the one line the script printed: "Sent to Groupie. Check your group." for a group
-   code, or "Sent to Groupie. Check your Telegram messages." for a personal code.
+8. Text the student exactly the line or lines the script printed, word for word, whatever the exit code. Do not
+   reword them, add to them, or sum up a failure as "rejected"; each line already says what happened and what to
+   do next. On success it prints "Sent to Groupie. Check your group." for a group code, or "Sent to Groupie. Check
+   your Telegram messages." for a personal code.
+   - If the files were too big, the script already sent the assignment text without them, on its own. It prints
+     "The files are too big to send. I'll send the assignment text instead." and then the result of that second
+     try. Send both lines, and do not run it again.
+   - The script also prints short notes for you, such as the error name and a request id. Every note line begins
+     with "error:", "requestId:" or "retry without attachments:". Never text a line that begins with one of those
+     to the student; text only the other lines.
 
 To try the script without sending anything, run `python3 scripts/send.py --sample`.
 
@@ -134,17 +147,23 @@ line. Every failure reply is one line that tells the student what to do next.
 
 ## When something fails
 
-| Exit code | Meaning | What to text the student |
-| --- | --- | --- |
-| 2 | The payload file is missing or not readable | Rewrite the file from step 6 and run the script once more; if it fails again, say the import did not work |
-| 3 | The code is not a Groupie code | "That code doesn't look right. Copy it again from the Groupie message in your group." |
-| 4 | Something required is missing or too long | Fix what the script named (for example a missing title, or a description over 60,000 characters, which you shorten) and run once more |
-| 5 | Groupie's server is not reachable | "I couldn't reach Groupie right now. Want me to try again in a minute?" |
-| 6 | Groupie could not read the assignment | "Groupie couldn't read that assignment. Try uploading the file in your group instead." |
-| 7 | This Skill is out of date | "This Groupie Skill needs an update. Text me its GitHub link again to update it." |
-| 8 | The code was already used, expired or is unknown | "That code is used or expired. Type /canvas in your Groupie group for a fresh code and text it to me." |
-| 9 | The group is not expecting an assignment | "Your Groupie group already has its assignment, so I didn't send this one." |
-| 10 | Too many imports in the last hour | "Groupie says too many imports right now. Try again in an hour." |
-| 11 | Other server error | "Groupie had a problem on its end. Try again later." |
+The script prints the student's line itself, so there is nothing to look up: text it exactly. The table is only so
+you know what each exit code means.
 
-Never retry more than once, and never say it was sent unless the script exited with 0.
+| Exit code | Meaning | What the script prints for the student |
+| --- | --- | --- |
+| 2 | The payload file is missing or not readable | Nothing. Rewrite the file from step 6 and run the script once more; if it fails again, say the import did not work |
+| 3 | The code is not a Groupie code | "That code doesn't look right. Copy it again from the Groupie message in your group." |
+| 4 | Something required is missing or too long | Nothing. Fix what the script named (for example a missing title, or a description over 60,000 characters, which you shorten) and run once more |
+| 5 | Groupie's server is not reachable | "Groupie hit a snag on its side. Your code still works, try again in a minute." |
+| 6 | Groupie could not use the assignment | "Groupie hit a snag on its side. Your code still works, try again in a minute." |
+| 7 | This Skill is out of date | "This Groupie skill is out of date. Reinstall it with: Install this skill: https://github.com/katsdivi/groupie-cubbie-skill/tree/main/groupie-import" |
+| 8 | The code expired or is unknown | "That code expired. Send /canvas in your Groupie group for a new one, then text me again." |
+| 9 | The group already has its assignment | "That group already has its assignment. Send /reset in the group to start over, then /canvas for a new code." |
+| 10 | Too many tries | "Too many tries, wait a minute and try again." |
+| 11 | Other server error | "Groupie hit a snag on its side. Your code still works, try again in a minute." |
+| 12 | The code was already used | "That code was already used. Grab a fresh one with /canvas." |
+| 13 | Too big even without the files | "Groupie hit a snag on its side. Your code still works, try again in a minute.", after "The files are too big to send. I'll send the assignment text instead." when there were files to drop |
+
+Run the script again only for exit codes 2 and 4, after fixing the file, and only once. For every other code, wait
+for the student to text you again. Never say it was sent unless the script exited with 0.

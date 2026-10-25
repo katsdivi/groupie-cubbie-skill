@@ -10,18 +10,25 @@ Standard library only, Python 3.9 or newer.
     python3 scripts/send.py --sample                # checks the bundled sample, sends nothing
     python3 scripts/send.py --sample --url http://localhost:3000
 
-Exit codes:
-  0 sent (or, with --sample and no --url, the sample checked out)
-  2 bad arguments, or the payload file is missing or not JSON
-  3 the pair code is not 6 letters and digits from Groupie's alphabet
-  4 the payload is missing something or breaks a size limit
-  5 Groupie's server could not be reached (after one retry)
-  6 the server rejected the payload (400)
-  7 the server rejected the signature (401): the Skill's signing key is out of date
-  8 the code is unknown, already used or expired (404, or 409 code_used / code_expired)
-  9 the group is not expecting an assignment (409 not_expecting)
-  10 too many imports, try later (429)
-  11 any other server error
+Output: stdout holds only what Cubbie texts the student, word for word (one line, or two when big files were
+dropped and the text was sent instead). stderr holds short notes for Cubbie that are never read aloud: what to fix
+for exit codes 2 and 4, and the server's error code and requestId. Secrets are never printed.
+
+Exit codes (one per class; the student line is the same for 5, 6 and 11):
+  0  sent (or, with --sample and no --url, the sample checked out)
+  2  bad arguments, or the payload file is missing or not JSON (nothing on stdout; fix and rerun)
+  3  the pair code is not 6 letters and digits from Groupie's alphabet
+  4  the payload is missing something or breaks a size limit (nothing on stdout; fix and rerun)
+  5  Groupie's server could not be reached or timed out (after one retry): "hit a snag" line
+  6  invalid_payload: Groupie could not use the payload: "hit a snag" line
+  7  bad_signature: the Skill's signing key is out of date: reinstall line
+  8  code_expired or code_unknown: "That code expired" line
+  9  not_expecting: the group already has its assignment: /reset line
+  10 rate_limited: "Too many tries" line
+  11 server_error, and any other or missing error code, or a body that is not JSON: "hit a snag" line
+  12 code_used: "That code was already used" line
+  13 payload_too_large, still too large after the one automatic retry without attachments (or there were no
+     attachments to drop): "hit a snag" line
 """
 
 from __future__ import annotations
@@ -46,7 +53,7 @@ SAMPLE = Path(__file__).resolve().parent.parent / "assets" / "sample_payload.jso
 TIMEOUT_SECONDS = 20
 
 # Public by design: Cubbie cannot host team keys, so anyone who installs the Skill can read this value.
-# It is integrity and spam friction only; the single-use, 15 minute pair code is the real gate.
+# It is integrity and spam friction only; the single-use, 30 minute pair code is the real gate.
 # It must equal the server's CUBBIE_PUBLIC_SIGNING_KEY; paste it in when publishing (see README.md). Never print it.
 GROUPIE_SIGNING_KEY = os.environ.get("GROUPIE_SIGNING_KEY") or "5a820a40127e62cd1966b6362bae344235e40f4de2e45f39fabe0bc29d013e98"
 
@@ -62,14 +69,49 @@ URL = re.compile(r"^https?://[^\s/]+\S*$", re.IGNORECASE)
 
 EXIT_OK, EXIT_ARGS, EXIT_CODE, EXIT_PAYLOAD, EXIT_NETWORK = 0, 2, 3, 4, 5
 EXIT_BAD_PAYLOAD, EXIT_SIGNATURE, EXIT_FRESH_CODE, EXIT_NOT_EXPECTING, EXIT_RATE, EXIT_SERVER = 6, 7, 8, 9, 10, 11
+EXIT_CODE_USED, EXIT_TOO_LARGE = 12, 13
+# Exit codes whose line is a note for Cubbie (fix the file and rerun), not something to text the student.
+CUBBIE_ONLY = (EXIT_ARGS, EXIT_PAYLOAD)
+
+USER_AGENT = "groupie-import-skill/2"
+
+# What Cubbie texts the student, word for word. Keep these in step with SKILL.md.
+LINE_EXPIRED = "That code expired. Send /canvas in your Groupie group for a new one, then text me again."
+LINE_USED = "That code was already used. Grab a fresh one with /canvas."
+LINE_TOO_BIG = "The files are too big to send. I'll send the assignment text instead."
+LINE_SNAG = "Groupie hit a snag on its side. Your code still works, try again in a minute."
+LINE_RATE = "Too many tries, wait a minute and try again."
+LINE_OUTDATED = ("This Groupie skill is out of date. Reinstall it with: Install this skill: "
+                 "https://github.com/katsdivi/groupie-cubbie-skill/tree/main/groupie-import")
+LINE_NOT_EXPECTING = ("That group already has its assignment. Send /reset in the group to start over, "
+                      "then /canvas for a new code.")
+LINE_BAD_CODE = "That code doesn't look right. Copy it again from the Groupie message in your group."
+LINE_SENT = "Sent to Groupie. Check your group."
+
+# Server error code -> (exit code, student line). Anything else, or no code at all, is server_error.
+ERRORS = {
+    "code_expired": (EXIT_FRESH_CODE, LINE_EXPIRED),
+    "code_unknown": (EXIT_FRESH_CODE, LINE_EXPIRED),
+    "code_used": (EXIT_CODE_USED, LINE_USED),
+    "bad_signature": (EXIT_SIGNATURE, LINE_OUTDATED),
+    "payload_too_large": (EXIT_TOO_LARGE, LINE_SNAG),
+    "invalid_payload": (EXIT_BAD_PAYLOAD, LINE_SNAG),
+    "rate_limited": (EXIT_RATE, LINE_RATE),
+    "server_error": (EXIT_SERVER, LINE_SNAG),
+    "not_expecting": (EXIT_NOT_EXPECTING, LINE_NOT_EXPECTING),
+}
+# Older server names for the same errors, so a Skill update and a server deploy can land in either order.
+ALIASES = {"unknown_code": "code_unknown", "bad_payload": "invalid_payload"}
+REQUEST_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,100}$")
 
 
 class Stop(Exception):
-    """One line for the student's assistant, and the exit code that goes with it."""
+    """One line (for the student, or for Cubbie with exit codes 2 and 4), the exit code, and an optional note."""
 
-    def __init__(self, message: str, code: int):
+    def __init__(self, message: str, code: int, detail: str = ""):
         super().__init__(message)
         self.code = code
+        self.detail = detail
 
 
 # ---------------------------------------------------------------- checking the payload
@@ -219,12 +261,12 @@ def post(url: str, body: bytes, headers: dict) -> tuple:
 
 
 def send(base_url: str, payload: dict, key: str) -> tuple:
-    """Sign and send the payload, retrying once on a network error. Returns (status, parsed JSON body)."""
+    """Sign and send the payload, retrying once on a network error. Returns (status, parsed JSON body or None)."""
     body = encode(payload)
     headers = {
         "Content-Type": "application/json",
         "X-Groupie-Signature": sign(key.encode("utf-8"), body),
-        "User-Agent": "groupie-import-skill/1",
+        "User-Agent": USER_AGENT,
     }
     url = base_url.rstrip("/") + IMPORT_PATH
     for attempt in (1, 2):
@@ -233,31 +275,68 @@ def send(base_url: str, payload: dict, key: str) -> tuple:
             break
         except (OSError, socket.timeout) as exc:  # URLError, timeouts and refused connections are all OSError
             if attempt == 2:
-                raise Stop(f"Could not reach Groupie's server ({type(exc).__name__}). Try again in a minute.",
-                           EXIT_NETWORK) from None
+                raise Stop(LINE_SNAG, EXIT_NETWORK, f"error: unreachable ({type(exc).__name__})") from None
     try:
-        data = json.loads(raw.decode("utf-8") or "{}")
-    except ValueError:
-        data = {}
-    return status, data if isinstance(data, dict) else {}
+        data = json.loads(raw.decode("utf-8"))
+    except ValueError:  # includes UnicodeDecodeError
+        return status, None
+    return status, data if isinstance(data, dict) else None
 
 
-def outcome(status: int, data: dict) -> tuple:
-    """Map the server's answer to (exit code, one line)."""
-    error = str(data.get("error") or "")
-    if 200 <= status < 300 and data.get("ok") is True:
-        return EXIT_OK, str(data.get("message") or "Sent to Groupie. Check your group.")
-    if status == 400:
-        return EXIT_BAD_PAYLOAD, "Groupie could not read this assignment (bad_payload)."
-    if status == 401:
-        return EXIT_SIGNATURE, "Groupie rejected the Skill's signature; the Skill needs an update."
-    if status == 404 or (status == 409 and error in ("code_used", "code_expired")):
-        return EXIT_FRESH_CODE, f"That pair code is {'unknown' if status == 404 else error.replace('code_', '')}."
-    if status == 409:
-        return EXIT_NOT_EXPECTING, "That group is not expecting an assignment right now."
-    if status == 429:
-        return EXIT_RATE, "Too many imports in the last hour. Try again later."
-    return EXIT_SERVER, f"Groupie's server answered HTTP {status}. Try again later."
+def error_code(status: int, data) -> str:
+    """The server's error code, normalized. A 413 with no JSON (a proxy's body limit) is payload_too_large."""
+    error = data.get("error") if isinstance(data, dict) else None
+    error = ALIASES.get(error, error) if isinstance(error, str) else None
+    if error in ERRORS:
+        return error
+    return "payload_too_large" if status == 413 else "server_error"
+
+
+def request_id(data) -> str:
+    """The server's requestId when it looks like one, else empty (never echo arbitrary server text)."""
+    value = data.get("requestId") if isinstance(data, dict) else None
+    return value if isinstance(value, str) and REQUEST_ID.match(value) else ""
+
+
+def note(status: int, data) -> str:
+    """The short machine note for stderr: error code, HTTP status and requestId."""
+    rid = request_id(data)
+    return f"error: {error_code(status, data)} (HTTP {status})" + (f"\nrequestId: {rid}" if rid else "")
+
+
+def outcome(status: int, data) -> tuple:
+    """Map the server's answer to (exit code, student line)."""
+    if 200 <= status < 300 and isinstance(data, dict) and data.get("ok") is True:
+        message = data.get("message")
+        return EXIT_OK, message if isinstance(message, str) and message.strip() else LINE_SENT
+    return ERRORS[error_code(status, data)]
+
+
+def without_attachments(payload: dict) -> dict:
+    """The same payload with its attachments dropped (the assignment text stays)."""
+    return {k: v for k, v in payload.items() if k != "attachments"}
+
+
+def deliver(base: str, payload: dict, key: str) -> tuple:
+    """Send, and on payload_too_large retry once without attachments. Returns (exit code, stdout lines, notes)."""
+    lines, notes = [], []
+    try:
+        status, data = send(base, payload, key)
+    except Stop as stop:
+        return stop.code, [str(stop)], [stop.detail]
+    code, line = outcome(status, data)
+    if code != EXIT_OK:
+        notes.append(note(status, data))
+    if code == EXIT_TOO_LARGE and payload.get("attachments"):
+        lines.append(LINE_TOO_BIG)
+        try:
+            status, data = send(base, without_attachments(payload), key)
+        except Stop as stop:
+            return stop.code, lines + [str(stop)], notes + [stop.detail]
+        code, line = outcome(status, data)
+        if code != EXIT_OK:
+            notes.append("retry without attachments: " + note(status, data))
+    return code, lines + [line], notes
 
 
 # ---------------------------------------------------------------- command line
@@ -273,6 +352,7 @@ def load(path: Path):
 
 
 def run(argv=None) -> tuple:
+    """Returns (exit code, stdout lines, stderr notes); raises Stop for problems found before sending."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--file", type=Path, help="the payload JSON Cubbie wrote")
@@ -282,7 +362,7 @@ def run(argv=None) -> tuple:
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:
-        return (EXIT_OK if exc.code == 0 else EXIT_ARGS), ""
+        return (EXIT_OK if exc.code == 0 else EXIT_ARGS), [], []
 
     payload = load(SAMPLE if args.sample else args.file)
     if not isinstance(payload, dict):
@@ -291,7 +371,7 @@ def run(argv=None) -> tuple:
         payload["pairCode"] = args.code
     code = normalize_code(payload.get("pairCode"))
     if code is None:
-        raise Stop("The pair code must be 6 letters and digits, like K7Q2MX.", EXIT_CODE)
+        raise Stop(LINE_BAD_CODE, EXIT_CODE, "error: the pair code must be 6 letters and digits, like K7Q2MX")
     payload["pairCode"] = code
     problems = validate(payload)
     if problems:
@@ -301,19 +381,23 @@ def run(argv=None) -> tuple:
     base = args.url or os.environ.get("GROUPIE_URL") or DEFAULT_URL
     if args.sample and not args.url:
         size = len(encode(payload))
-        return EXIT_OK, (f"Sample OK: would send {payload['assignment']['title']!r} ({payload['course']['name']}), "
-                         f"{size} bytes, to {base.rstrip('/')}{IMPORT_PATH}. Nothing was sent.")
-    status, data = send(base, payload, GROUPIE_SIGNING_KEY)
-    return outcome(status, data)
+        return EXIT_OK, [(f"Sample OK: would send {payload['assignment']['title']!r} ({payload['course']['name']}), "
+                          f"{size} bytes, to {base.rstrip('/')}{IMPORT_PATH}. Nothing was sent.")], []
+    return deliver(base, payload, GROUPIE_SIGNING_KEY)
 
 
 def main(argv=None) -> int:
     try:
-        code, line = run(argv)
+        code, lines, notes = run(argv)
     except Stop as stop:
-        code, line = stop.code, str(stop)
-    if line:
-        print(line[:500], file=sys.stdout if code == EXIT_OK else sys.stderr)
+        code, lines, notes = stop.code, [str(stop)], [stop.detail]
+    out = sys.stderr if code in CUBBIE_ONLY else sys.stdout
+    for line in lines:
+        if line:
+            print(line[:500], file=out)
+    for item in notes:
+        if item:
+            print(item[:300], file=sys.stderr)
     return code
 
 

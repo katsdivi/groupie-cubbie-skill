@@ -72,7 +72,7 @@ def run(argv=None) -> tuple:
     headers = {
         "Content-Type": "application/json",
         "X-Groupie-Signature": send.sign(send.GROUPIE_SIGNING_KEY.encode("utf-8"), body),
-        "User-Agent": "groupie-import-skill/1",
+        "User-Agent": send.USER_AGENT,
     }
     status, raw = g.request("POST", base + g.LINK_PATH, headers, body)
     try:

@@ -6,7 +6,7 @@ splits group projects; Cubbie is the iMessage assistant that already has the stu
 ## What it does
 
 1. In the Telegram group, a teammate types `/canvas`. Groupie replies with a one-time code (6 characters, single
-   use, 15 minutes) and the exact text to send Cubbie, such as `Groupie import K7Q2MX`.
+   use, 30 minutes) and the exact text to send Cubbie, such as `Groupie import K7Q2MX`.
 2. The student texts that to Cubbie, optionally with the assignment name: `Groupie import K7Q2MX Project 2`.
 3. Cubbie reads the assignment from Canvas (course, title, due date with time zone, points if shown, description,
    link) and the text of its attached files, shows the student a short summary, and asks before sending.
@@ -21,7 +21,7 @@ Groupie plans that assignment for one person, DMs the student the steps, adds th
 ## iMessage link
 
 1. In a private chat with @CubbieGroupieBot, the student sends `/imessage`. Groupie replies with a one-time link
-   code (same alphabet, single use, 15 minutes): "Text Cubbie: Groupie link K7Q2MX".
+   code (same alphabet, single use, 30 minutes): "Text Cubbie: Groupie link K7Q2MX".
 2. The student texts that to Cubbie. `scripts/link.py` sends the signed code to `POST /api/cubbie/link`, and
    Groupie returns a token once. The script saves it to `~/.config/groupie/token` (mode 600, folder 700) in the
    student's own Cubbie sandbox and never prints it. Groupie DMs the student that the link worked.
@@ -76,7 +76,7 @@ the student. Canvas must be connected to Cubbie.
 `scripts/send.py` signs every request with HMAC-SHA256 in the `X-Groupie-Signature: sha256=<hex>` header. The key
 is the constant `GROUPIE_SIGNING_KEY` (read from the `GROUPIE_SIGNING_KEY` environment variable if set, else the
 placeholder `REPLACE_AT_PUBLISH`), and it must equal the Groupie server's `CUBBIE_PUBLIC_SIGNING_KEY`. Cubbie cannot host a team's keys, so anyone who installs the Skill can read the
-key. It is integrity and spam friction only; the real gate is the single-use, 15 minute pair code plus the
+key. It is integrity and spam friction only; the real gate is the single-use, 30 minute pair code plus the
 server's rate limits (10 imports per user per hour, 30 per IP per hour). The script never prints the key.
 
 ## Publishing
