@@ -1,0 +1,34 @@
+{
+  "name": "Ana",
+  "now": "2026-10-24T17:00:00.000Z",
+  "groups": [
+    {
+      "title": "CSE 340 Team",
+      "assignmentTitle": "Project 2: Campus Food Finder",
+      "dueDate": "2026-11-20",
+      "dueLabel": "Fri, Nov 20",
+      "daysLeft": 27,
+      "myTasks": [
+        { "title": "Write the requirements", "status": "on_track", "points": 5 },
+        { "title": "Interview five students", "status": "todo", "points": 3 },
+        { "title": "Make wireframes", "status": "done", "points": 3 }
+      ],
+      "myTasksLeft": 2,
+      "groupTasksDone": 4,
+      "groupTasksTotal": 12,
+      "nextMeeting": {
+        "start": "2026-10-28T23:00:00.000Z",
+        "label": "Tue, Oct 28, 4:00 to 5:00 PM",
+        "mode": "zoom",
+        "joinUrl": "https://zoom.us/j/123456789",
+        "location": null
+      }
+    }
+  ],
+  "upcoming": [
+    { "title": "Lab 4", "course": "CSE 340 (Fall 2026)", "dueAt": "2026-10-27T06:59:00.000Z", "dueLabel": "Sun Oct 26, 11:59 PM", "kind": "assignment" },
+    { "title": "Reading quiz 6", "course": "HST 101 (Fall 2026)", "dueAt": "2026-10-29T16:00:00.000Z", "dueLabel": "Wed Oct 29, 9:00 AM", "kind": "assignment" }
+  ],
+  "counts": { "myTasksLeft": 2, "upcoming": 2, "groups": 1 },
+  "summary": "2 tasks left, 2 things due in the next 7 days"
+}
