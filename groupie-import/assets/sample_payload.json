@@ -1,0 +1,21 @@
+{
+  "pairCode": "K7Q2MX",
+  "course": {
+    "name": "CSE 340: Software Engineering",
+    "code": "CSE 340"
+  },
+  "assignment": {
+    "title": "Project 2: Campus Food Finder",
+    "dueAt": "2026-11-20T23:59:00-07:00",
+    "pointsPossible": null,
+    "descriptionText": "In teams of 4 to 6, design and build a small web application that helps students find open food options on campus.\nRequirements:\n1. Interview at least 5 students and write a 1 page summary.\n2. Requirements document with at least 10 user stories and acceptance criteria.\n3. Wireframes for at least 4 screens and a clickable mockup.\n4. Working prototype (React or similar) with a searchable list of food locations and their hours.\n5. Load and clean the provided dining hours CSV and expose it through a simple API.\n6. Unit tests for search and hours logic, at least 70 percent coverage.\n7. 6 to 8 page final report on design decisions, testing, and reflections.\n8. 10 minute in-class presentation with a live demo.\nDeliverables: GitHub repo link with README, final report PDF, presentation slides.",
+    "url": "https://canvas.asu.edu/courses/123456/assignments/7654321"
+  },
+  "attachments": [
+    {
+      "filename": "project2-spec.pdf",
+      "mimeType": "application/pdf",
+      "text": "Project 2 spec. Teams of 4 to 6. Milestones: interviews and requirements (week 1), wireframes (week 2), prototype and API (weeks 3 and 4), tests, report and presentation (week 5)."
+    }
+  ]
+}
